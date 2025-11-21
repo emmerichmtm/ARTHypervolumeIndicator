@@ -2,7 +2,7 @@
 truncated_hypervolume.py
 
 2-D and 3-D hypervolume for minimization and maximization, with optional
-ART truncation via aspiration (a) and reservation (w) levels.
+ARC clipping via aspiration (a) and reservation (w) levels.
 
 Mathematically, for minimization we consider the dominated region
 
@@ -17,14 +17,15 @@ with
     H2 = [a_1, w_1] x ... x [a_m, w_m],
     H3 = [w_1, r_1] x ... x [w_m, r_m],
 
-and define the ART-Hypervolume as
+and define the ARC-Hypervolume as
 
-    HV_ART_min(P; r, a, w) = volume( C_min ∩ D(P) ).
+    HV_ARC_min(P; r, a, w) = volume( C_min ∩ D(P) ).
 
-For maximization we reduce to minimization via sign flip.
+For maximization we reduce to minimization via sign flip and use the
+analogous clipping region C_max.
 
 This file provides:
-- Exact 2D / 3D hypervolume (standard and ART).
+- Exact 2D / 3D hypervolume (standard and ARC).
 - Monte Carlo estimators for verification on toy examples.
 """
 
@@ -38,7 +39,7 @@ Point3D = Tuple[float, float, float]
 
 
 # ======================================================================
-# 2-D hypervolume (minimization core, no truncation)
+# 2-D hypervolume (minimization core, no clipping)
 # ======================================================================
 
 def _hv2d_union_origin(extents: Iterable[Point2D]) -> float:
@@ -93,17 +94,17 @@ def _hypervolume_2d_min_core(points: Iterable[Point2D],
 
 
 # ======================================================================
-# 2-D ART Hypervolume (minimization)
+# 2-D ARC Hypervolume (minimization)
 # ======================================================================
 
-def _hypervolume_2d_min_art(points: Iterable[Point2D],
+def _hypervolume_2d_min_arc(points: Iterable[Point2D],
                             ref: Point2D,
                             a: Point2D,
                             w: Point2D) -> float:
     """
-    2-D ART-Hypervolume for minimization:
+    2-D ARC-Hypervolume for minimization:
 
-        HV_ART_min(P; r, a, w) = volume( C_min ∩ D(P) ),
+        HV_ARC_min(P; r, a, w) = volume( C_min ∩ D(P) ),
 
     where
       D(P) = union_{p in P} [p, r],
@@ -113,10 +114,10 @@ def _hypervolume_2d_min_art(points: Iterable[Point2D],
         H3 = [w, r]^2.
 
     Implemented as:
-      HV1 = HV_min( {p <= a}, ref=a )              from H1
-      HV2 = HV_min( {q = max(p, a), p <= w}, ref=w ) from H2
-      HV3 = HV_min( {r' = max(p, w)}, ref=r )        from H3
-      HV_ART = HV1 + HV2 + HV3
+      HV1 = HV_min( {p <= a}, ref=a )                 from H1
+      HV2 = HV_min( {q = max(p, a), p <= w}, ref=w )  from H2
+      HV3 = HV_min( {r' = max(p, w)}, ref=r )         from H3
+      HV_ARC = HV1 + HV2 + HV3
     """
     rx, ry = map(float, ref)
     ax, ay = map(float, a)
@@ -166,11 +167,11 @@ def hypervolume_2d_min(points: Iterable[Point2D],
         standard hypervolume HV_min(P; ref).
 
     If a and w are given:
-        ART-Hypervolume HV_ART_min(P; ref, a, w) as C_min ∩ D(P).
+        ARC-Hypervolume HV_ARC_min(P; ref, a, w) as C_min ∩ D(P).
     """
     if a is None or w is None:
         return _hypervolume_2d_min_core(points, ref)
-    return _hypervolume_2d_min_art(points, ref, a, w)
+    return _hypervolume_2d_min_arc(points, ref, a, w)
 
 
 def hypervolume_2d(points: Iterable[Point2D],
@@ -190,7 +191,7 @@ def hypervolume_2d(points: Iterable[Point2D],
 
     - If maximize == False:
         - (a, w) omitted → standard HV_min.
-        - (a, w) given   → ART-HV_min (C_min ∩ D(P)).
+        - (a, w) given   → ARC-HV_min (C_min ∩ D(P)).
 
     - If maximize == True:
         We map to minimization via sign flip and apply the same logic.
@@ -221,7 +222,7 @@ def hypervolume_2d_max(points: Iterable[Point2D],
 
 
 # ======================================================================
-# 3-D hypervolume (minimization core, no truncation)
+# 3-D hypervolume (minimization core, no clipping)
 # ======================================================================
 
 def _hypervolume_3d_min_core(points: Iterable[Point3D],
@@ -267,17 +268,17 @@ def _hypervolume_3d_min_core(points: Iterable[Point3D],
 
 
 # ======================================================================
-# 3-D ART Hypervolume (minimization)
+# 3-D ARC Hypervolume (minimization)
 # ======================================================================
 
-def _hypervolume_3d_min_art(points: Iterable[Point3D],
+def _hypervolume_3d_min_arc(points: Iterable[Point3D],
                             ref: Point3D,
                             a: Point3D,
                             w: Point3D) -> float:
     """
-    3-D ART-Hypervolume for minimization:
+    3-D ARC-Hypervolume for minimization:
 
-      HV_ART_min(P; r, a, w) = volume( C_min ∩ D(P) ),
+      HV_ARC_min(P; r, a, w) = volume( C_min ∩ D(P) ),
 
     with
       C_min = H1 ∪ H2 ∪ H3,
@@ -289,7 +290,7 @@ def _hypervolume_3d_min_art(points: Iterable[Point3D],
       HV1 = HV_min( {p <= a}, ref=a )
       HV2 = HV_min( {q = max(p, a), p <= w}, ref=w )
       HV3 = HV_min( {r' = max(p, w)}, ref=r )
-      HV_ART = HV1 + HV2 + HV3.
+      HV_ARC = HV1 + HV2 + HV3.
     """
     rx, ry, rz = map(float, ref)
     ax, ay, az = map(float, a)
@@ -348,11 +349,11 @@ def hypervolume_3d_min(points: Iterable[Point3D],
         standard HV_min(P; ref).
 
     If a and w are given:
-        ART-Hypervolume HV_ART_min(P; ref, a, w) as C_min ∩ D(P).
+        ARC-Hypervolume HV_ARC_min(P; ref, a, w) as C_min ∩ D(P).
     """
     if a is None or w is None:
         return _hypervolume_3d_min_core(points, ref)
-    return _hypervolume_3d_min_art(points, ref, a, w)
+    return _hypervolume_3d_min_arc(points, ref, a, w)
 
 
 # Backward-compatible alias
@@ -369,7 +370,7 @@ def hypervolume_3d(points: Iterable[Point3D],
 
     - If maximize == False:
         (a, w) omitted → standard HV_min.
-        (a, w) given   → ART-HV_min.
+        (a, w) given   → ARC-HV_min.
 
     - If maximize == True:
         Reduce to minimization by sign flip.
@@ -447,7 +448,7 @@ def _mc_estimate_hv_2d_min(points: Iterable[Point2D],
     Monte Carlo estimate in the **minimization** setting of:
 
       - HV_min(P; ref)             if a, w are None
-      - HV_ART_min(P; ref, a, w)   if a, w given
+      - HV_ARC_min(P; ref, a, w)   if a, w given
     """
     P: List[Point2D] = [(float(x), float(y)) for (x, y) in points]
     if not P:
@@ -463,7 +464,7 @@ def _mc_estimate_hv_2d_min(points: Iterable[Point2D],
         return _mc_box_2d(P, (rx, ry), (min_x, min_y), (rx, ry),
                           n_samples, rng)
 
-    # ART: decompose into three regions
+    # ARC: decompose into three regions
     ax, ay = map(float, a)
     wx, wy = map(float, w)
 
@@ -543,7 +544,7 @@ def _mc_estimate_hv_3d_min(points: Iterable[Point3D],
     Monte Carlo estimate in the **minimization** setting of:
 
       - HV_min(P; ref)             if a, w are None
-      - HV_ART_min(P; ref, a, w)   if a, w given
+      - HV_ARC_min(P; ref, a, w)   if a, w given
     """
     P: List[Point3D] = [(float(x), float(y), float(z)) for (x, y, z) in points]
     if not P:
@@ -682,7 +683,7 @@ def mc_estimate_hv_3d(points: Iterable[Point3D],
 
 if __name__ == "__main__":
     # --------------------------------------------------------------
-    # 3-D example: maximization, no truncation (standard HV)
+    # 3-D example: maximization, no clipping (standard HV)
     # --------------------------------------------------------------
     P3: List[Point3D] = [
         (1, 6, 4),
@@ -698,17 +699,17 @@ if __name__ == "__main__":
     hv_exact, hv_mc = mc_estimate_hv_3d(P3, ref3, maximize=True,
                                         n_samples=200_000, seed=1)
     rel_err = abs(hv_mc - hv_exact) / hv_exact if hv_exact != 0.0 else 0.0
-    print("=== 3D example: maximization, no truncation ===")
+    print("=== 3D example: maximization, no clipping (standard HV) ===")
     print(f"Exact HV   : {hv_exact:.6f}  (expected 128.0)")
     print(f"MC estimate: {hv_mc:.6f}")
     print(f"Rel. error : {rel_err:.6e}")
     print()
 
     # --------------------------------------------------------------
-    # 3-D example: minimization with ART truncation
+    # 3-D example: minimization with ARC clipping
     # P3_min = {(3,3,3)}, r=(5,5,5), a=(2,2,2), w=(4,4,4)
     # Standard HV_min = 8
-    # ART-HV_min = volume([3,4]^3) + volume([4,5]^3) = 1 + 1 = 2
+    # ARC-HV_min = volume([3,4]^3) + volume([4,5]^3) = 1 + 1 = 2
     # --------------------------------------------------------------
     P3_min: List[Point3D] = [(3, 3, 3)]
     r3: Point3D = (5, 5, 5)
@@ -725,22 +726,22 @@ if __name__ == "__main__":
     print(f"Rel. error : {rel_err_std:.6e}")
     print()
 
-    hv_exact_art, hv_mc_art = mc_estimate_hv_3d(P3_min, r3, maximize=False,
+    hv_exact_arc, hv_mc_arc = mc_estimate_hv_3d(P3_min, r3, maximize=False,
                                                 a=a3, w=w3,
                                                 n_samples=200_000, seed=3)
-    rel_err_art = (abs(hv_mc_art - hv_exact_art) / hv_exact_art
-                   if hv_exact_art != 0.0 else 0.0)
-    print("=== 3D example: minimization, ART-HV [a,w] ===")
-    print(f"Exact ART-HV   : {hv_exact_art:.6f}  (expected 2.0)")
-    print(f"MC estimate    : {hv_mc_art:.6f}")
-    print(f"Rel. error     : {rel_err_art:.6e}")
+    rel_err_arc = (abs(hv_mc_arc - hv_exact_arc) / hv_exact_arc
+                   if hv_exact_arc != 0.0 else 0.0)
+    print("=== 3D example: minimization, ARC-HV [a,w] ===")
+    print(f"Exact ARC-HV   : {hv_exact_arc:.6f}  (expected 2.0)")
+    print(f"MC estimate    : {hv_mc_arc:.6f}")
+    print(f"Rel. error     : {rel_err_arc:.6e}")
     print()
 
     # --------------------------------------------------------------
-    # 2-D example: minimization with ART truncation
+    # 2-D example: minimization with ARC clipping
     # P2 = {(1,4),(3,3),(1.5,3.5)}, r=(5,5), a=(2,2), w=(4,4)
     # Standard HV_min = 6.75
-    # ART-HV_min = 2.5 (see LaTeX derivation)
+    # ARC-HV_min = 2.5 (see LaTeX derivation)
     # --------------------------------------------------------------
     P2: List[Point2D] = [(1, 4), (3, 3), (1.5, 3.5)]
     r2: Point2D = (5, 5)
@@ -757,13 +758,13 @@ if __name__ == "__main__":
     print(f"Rel. error : {rel_err2_std:.6e}")
     print()
 
-    hv_exact2_art, hv_mc2_art = mc_estimate_hv_2d(P2, r2, maximize=False,
+    hv_exact2_arc, hv_mc2_arc = mc_estimate_hv_2d(P2, r2, maximize=False,
                                                   a=a2, w=w2,
                                                   n_samples=200_000, seed=5)
-    rel_err2_art = (abs(hv_mc2_art - hv_exact2_art) / hv_exact2_art
-                    if hv_exact2_art != 0.0 else 0.0)
-    print("=== 2D example: minimization, ART-HV [a,w] ===")
-    print(f"Exact ART-HV   : {hv_exact2_art:.6f}  (expected 2.5)")
-    print(f"MC estimate    : {hv_mc2_art:.6f}")
-    print(f"Rel. error     : {rel_err2_art:.6e}")
+    rel_err2_arc = (abs(hv_mc2_arc - hv_exact2_arc) / hv_exact2_arc
+                    if hv_exact2_arc != 0.0 else 0.0)
+    print("=== 2D example: minimization, ARC-HV [a,w] ===")
+    print(f"Exact ARC-HV   : {hv_exact2_arc:.6f}  (expected 2.5)")
+    print(f"MC estimate    : {hv_mc2_arc:.6f}")
+    print(f"Rel. error     : {rel_err2_arc:.6e}")
     print()
