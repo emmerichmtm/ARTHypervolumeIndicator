@@ -2,10 +2,22 @@
 truncated_hypervolume.py
 
 2-D and 3-D hypervolume for minimization and maximization, with optional
-truncation via aspiration (a) and reservation (w) levels.
+ART truncation via aspiration (a) and reservation (w) levels.
 
-Includes simple Monte Carlo estimators to verify the exact values
-on small examples.
+ART-HV (Aspiration–Reservation Truncated Hypervolume):
+
+- Minimization:
+    p'_j = min(max(p_j, a_j), w_j),   with a_j <= w_j <= r_j
+    HV_ART_min(P; r, a, w) = HV_min(P', ref = r)
+
+- Maximization:
+    handled via sign flip to minimization space.
+
+Key properties (minimization):
+- If ∃ p ∈ P with p <= w (w is dominated), then [w, r] is fully counted.
+- If ∃ p ∈ P with p <= a (a is dominated), then [a, r] is fully counted.
+
+Includes simple Monte Carlo estimators to verify exact values on small examples.
 """
 
 from collections import defaultdict
@@ -21,11 +33,8 @@ Point3D = Tuple[float, float, float]
 # ======================================================================
 
 def _hv2d_union_origin(extents: Iterable[Point2D]) -> float:
-    """
-    Given rectangles [0, X] x [0, Y] for each (X, Y) in extents (X>0, Y>0),
-    return the area of their union.
-    """
-    pts = sorted(extents)  # sort by X ascending
+    """Area of union of rectangles [0, X] x [0, Y] for (X, Y) in extents."""
+    pts = sorted(extents)
     n = len(pts)
     if n == 0:
         return 0.0
@@ -78,9 +87,10 @@ def hypervolume_2d_min(points: Iterable[Point2D],
     """
     2-D hypervolume for minimization.
 
-    If a and w are given, we project each point p into [a, w] componentwise:
+    If a and w are given, we define the ART-hypervolume by
+    componentwise projection:
         p'_j = min(max(p_j, a_j), w_j),
-    and compute HV_min(P', ref=w).
+    and compute HV_min(P', ref = r), where r is the original reference.
     """
     if a is None or w is None:
         return _hypervolume_2d_min_core(points, ref)
@@ -100,8 +110,8 @@ def hypervolume_2d_min(points: Iterable[Point2D],
         ty = min(max(y, ay), wy)
         trunc_points.append((tx, ty))
 
-    trunc_ref = (wx, wy)
-    return _hypervolume_2d_min_core(trunc_points, trunc_ref)
+    # Note: reference remains the original r
+    return _hypervolume_2d_min_core(trunc_points, ref)
 
 
 def hypervolume_2d(points: Iterable[Point2D],
@@ -114,11 +124,11 @@ def hypervolume_2d(points: Iterable[Point2D],
 
     Parameters
     ----------
-    points : iterable of (x, y)
-    ref    : reference point (rx, ry)
+    points   : iterable of (x, y)
+    ref      : reference point (rx, ry)
     maximize : if False (default), minimization; if True, maximization
-    a, w   : optional aspiration and reservation levels (same orientation
-             as ref and points). If omitted, standard hypervolume is used.
+    a, w     : optional aspiration and reservation levels (same orientation
+               as ref and points). If omitted, standard hypervolume is used.
 
     For maximization, we reduce to minimization via sign flip.
     """
@@ -143,9 +153,7 @@ def hypervolume_2d_max(points: Iterable[Point2D],
                        ref: Point2D = (0.0, 0.0),
                        a: Optional[Point2D] = None,
                        w: Optional[Point2D] = None) -> float:
-    """
-    Convenience wrapper for 2-D maximization hypervolume.
-    """
+    """Convenience wrapper for 2-D maximization hypervolume."""
     return hypervolume_2d(points, ref, maximize=True, a=a, w=w)
 
 
@@ -205,9 +213,10 @@ def hypervolume_3d_min(points: Iterable[Point3D],
     """
     3-D hypervolume for minimization.
 
-    If a and w are given, we project each point p into [a, w] componentwise:
+    If a and w are given, we define the ART-hypervolume by
+    componentwise projection:
         p'_j = min(max(p_j, a_j), w_j),
-    and compute HV_min(P', ref=w).
+    and compute HV_min(P', ref = r), where r is the original reference.
     """
     if a is None or w is None:
         return _hypervolume_3d_min_core(points, ref)
@@ -230,8 +239,8 @@ def hypervolume_3d_min(points: Iterable[Point3D],
         tz = min(max(z, az), wz)
         trunc_points.append((tx, ty, tz))
 
-    trunc_ref = (wx, wy, wz)
-    return _hypervolume_3d_min_core(trunc_points, trunc_ref)
+    # Note: reference remains the original r
+    return _hypervolume_3d_min_core(trunc_points, ref)
 
 
 # Backwards-compatible alias (from original code)
@@ -248,10 +257,10 @@ def hypervolume_3d(points: Iterable[Point3D],
 
     Parameters
     ----------
-    points : iterable of (x, y, z)
-    ref    : reference point (rx, ry, rz)
+    points   : iterable of (x, y, z)
+    ref      : reference point (rx, ry, rz)
     maximize : if False (default), minimization; if True, maximization
-    a, w   : optional aspiration and reservation levels.
+    a, w     : optional aspiration and reservation levels.
 
     For maximization, we reduce to minimization via sign flip.
     """
@@ -276,27 +285,23 @@ def hypervolume_3d_max(points: Iterable[Point3D],
                        ref: Point3D = (0.0, 0.0, 0.0),
                        a: Optional[Point3D] = None,
                        w: Optional[Point3D] = None) -> float:
-    """
-    Convenience wrapper for 3-D maximization hypervolume.
-    """
+    """Convenience wrapper for 3-D maximization hypervolume."""
     return hypervolume_3d(points, ref, maximize=True, a=a, w=w)
 
 
 # ======================================================================
-# Monte Carlo estimators for verification
+# Geometry prep for Monte Carlo in minimization space
 # ======================================================================
 
 def _prepare_min_geometry_2d(points: Iterable[Point2D],
                              ref: Point2D,
                              maximize: bool = False,
                              a: Optional[Point2D] = None,
-                             w: Optional[Point2D] = None) -> Tuple[List[Point2D], Point2D]:
-    """
-    Return (P_eff, ref_eff) in minimization space after any truncation.
-    Used internally by the Monte Carlo estimators.
-    """
+                             w: Optional[Point2D] = None
+                             ) -> Tuple[List[Point2D], Point2D]:
+    """Return (P_eff, ref_eff) in minimization space after any truncation."""
     if maximize:
-        neg_points = [(-float(x), -float(y)) for (x, y) in points]
+        points_min = [(-float(x), -float(y)) for (x, y) in points]
         rx, ry = ref
         ref_min: Point2D = (-float(rx), -float(ry))
         if a is not None and w is not None:
@@ -304,32 +309,30 @@ def _prepare_min_geometry_2d(points: Iterable[Point2D],
             w_min: Point2D = tuple(-float(v) for v in w)  # type: ignore
         else:
             a_min = w_min = None
-        points_min = neg_points
     else:
         points_min = [(float(x), float(y)) for (x, y) in points]
         ref_min = tuple(map(float, ref))
         a_min = tuple(map(float, a)) if a is not None else None
         w_min = tuple(map(float, w)) if w is not None else None
 
-    # Apply truncation
     if a_min is not None and w_min is not None:
         ax, ay = a_min
         wx, wy = w_min
         ax, wx = min(ax, wx), max(ax, wx)
         ay, wy = min(ay, wy), max(ay, wy)
-        proj_points: List[Point2D] = []
+        proj: List[Point2D] = []
         for x, y in points_min:
             tx = min(max(x, ax), wx)
             ty = min(max(y, ay), wy)
-            proj_points.append((tx, ty))
-        ref_eff: Point2D = (wx, wy)
-        P_eff = proj_points
+            proj.append((tx, ty))
+        P_eff = [(x, y) for (x, y) in proj
+                 if x <= ref_min[0] and y <= ref_min[1]]
+        ref_eff = ref_min
     else:
-        ref_eff = ref_min  # type: ignore
-        P_eff = points_min
+        P_eff = [(x, y) for (x, y) in points_min
+                 if x <= ref_min[0] and y <= ref_min[1]]
+        ref_eff = ref_min
 
-    # Filter to contributing points
-    P_eff = [(x, y) for (x, y) in P_eff if x <= ref_eff[0] and y <= ref_eff[1]]
     return P_eff, ref_eff
 
 
@@ -337,13 +340,11 @@ def _prepare_min_geometry_3d(points: Iterable[Point3D],
                              ref: Point3D,
                              maximize: bool = False,
                              a: Optional[Point3D] = None,
-                             w: Optional[Point3D] = None) -> Tuple[List[Point3D], Point3D]:
-    """
-    Return (P_eff, ref_eff) in minimization space after any truncation.
-    Used internally by the Monte Carlo estimators.
-    """
+                             w: Optional[Point3D] = None
+                             ) -> Tuple[List[Point3D], Point3D]:
+    """Return (P_eff, ref_eff) in minimization space after any truncation."""
     if maximize:
-        neg_points = [(-float(x), -float(y), -float(z)) for (x, y, z) in points]
+        points_min = [(-float(x), -float(y), -float(z)) for (x, y, z) in points]
         rx, ry, rz = ref
         ref_min: Point3D = (-float(rx), -float(ry), -float(rz))
         if a is not None and w is not None:
@@ -351,40 +352,44 @@ def _prepare_min_geometry_3d(points: Iterable[Point3D],
             w_min: Point3D = tuple(-float(v) for v in w)  # type: ignore
         else:
             a_min = w_min = None
-        points_min = neg_points
     else:
         points_min = [(float(x), float(y), float(z)) for (x, y, z) in points]
         ref_min = tuple(map(float, ref))
         a_min = tuple(map(float, a)) if a is not None else None
         w_min = tuple(map(float, w)) if w is not None else None
 
-    # Apply truncation
     if a_min is not None and w_min is not None:
         ax, ay, az = a_min
         wx, wy, wz = w_min
         ax, wx = min(ax, wx), max(ax, wx)
         ay, wy = min(ay, wy), max(ay, wy)
         az, wz = min(az, wz), max(az, wz)
-        proj_points: List[Point3D] = []
+        proj: List[Point3D] = []
         for x, y, z in points_min:
             tx = min(max(x, ax), wx)
             ty = min(max(y, ay), wy)
             tz = min(max(z, az), wz)
-            proj_points.append((tx, ty, tz))
-        ref_eff: Point3D = (wx, wy, wz)
-        P_eff = proj_points
+            proj.append((tx, ty, tz))
+        P_eff = [
+            (x, y, z)
+            for (x, y, z) in proj
+            if x <= ref_min[0] and y <= ref_min[1] and z <= ref_min[2]
+        ]
+        ref_eff = ref_min
     else:
-        ref_eff = ref_min  # type: ignore
-        P_eff = points_min
+        P_eff = [
+            (x, y, z)
+            for (x, y, z) in points_min
+            if x <= ref_min[0] and y <= ref_min[1] and z <= ref_min[2]
+        ]
+        ref_eff = ref_min
 
-    # Filter to contributing points
-    P_eff = [
-        (x, y, z)
-        for (x, y, z) in P_eff
-        if x <= ref_eff[0] and y <= ref_eff[1] and z <= ref_eff[2]
-    ]
     return P_eff, ref_eff
 
+
+# ======================================================================
+# Monte Carlo estimators for verification
+# ======================================================================
 
 def mc_estimate_hv_2d(points: Iterable[Point2D],
                       ref: Point2D,
@@ -394,7 +399,7 @@ def mc_estimate_hv_2d(points: Iterable[Point2D],
                       n_samples: int = 100_000,
                       seed: int = 0) -> Tuple[float, float]:
     """
-    Monte Carlo estimate of the 2-D hypervolume.
+    Monte Carlo estimate of the 2-D hypervolume (standard or ART).
 
     Returns
     -------
@@ -403,7 +408,7 @@ def mc_estimate_hv_2d(points: Iterable[Point2D],
       hv_mc    : Monte Carlo estimate based on sampling
     """
     hv_exact = hypervolume_2d(points, ref, maximize=maximize, a=a, w=w)
-    P_eff, ref_eff = _prepare_min_geometry_2d(points, ref, maximize=maximize, a=a, w=w)
+    P_eff, ref_eff = _prepare_min_geometry_2d(points, ref, maximize, a, w)
 
     if hv_exact == 0.0 or not P_eff:
         return hv_exact, 0.0
@@ -445,7 +450,7 @@ def mc_estimate_hv_3d(points: Iterable[Point3D],
                       n_samples: int = 200_000,
                       seed: int = 0) -> Tuple[float, float]:
     """
-    Monte Carlo estimate of the 3-D hypervolume.
+    Monte Carlo estimate of the 3-D hypervolume (standard or ART).
 
     Returns
     -------
@@ -454,7 +459,7 @@ def mc_estimate_hv_3d(points: Iterable[Point3D],
       hv_mc    : Monte Carlo estimate based on sampling
     """
     hv_exact = hypervolume_3d(points, ref, maximize=maximize, a=a, w=w)
-    P_eff, ref_eff = _prepare_min_geometry_3d(points, ref, maximize=maximize, a=a, w=w)
+    P_eff, ref_eff = _prepare_min_geometry_3d(points, ref, maximize, a, w)
 
     if hv_exact == 0.0 or not P_eff:
         return hv_exact, 0.0
@@ -470,7 +475,9 @@ def mc_estimate_hv_3d(points: Iterable[Point3D],
         highs[1] = max(highs[1], y)
         highs[2] = max(highs[2], z)
 
-    vol_box = (highs[0] - lows[0]) * (highs[1] - lows[1]) * (highs[2] - lows[2])
+    vol_box = ((highs[0] - lows[0]) *
+               (highs[1] - lows[1]) *
+               (highs[2] - lows[2]))
     if vol_box <= 0.0:
         return hv_exact, 0.0
 
@@ -498,9 +505,9 @@ def mc_estimate_hv_3d(points: Iterable[Point3D],
 # ======================================================================
 
 if __name__ == "__main__":
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     # 3-D example: maximization, no truncation
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
     P3: List[Point3D] = [
         (1, 6, 4),
         (3, 5, 1),
@@ -516,14 +523,15 @@ if __name__ == "__main__":
                                         n_samples=200_000, seed=1)
     rel_err = abs(hv_mc - hv_exact) / hv_exact if hv_exact != 0.0 else 0.0
     print("=== 3D example: maximization, no truncation ===")
-    print(f"Exact HV   : {hv_exact:.6f}")
+    print(f"Exact HV   : {hv_exact:.6f}  (expected 128.0)")
     print(f"MC estimate: {hv_mc:.6f}")
     print(f"Rel. error : {rel_err:.6e}")
     print()
 
-    # ------------------------------------------------------------------
-    # 3-D example: minimization with and without truncation
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
+    # 3-D example: minimization with and without ART truncation
+    # (point lies inside [a, w], so ART-HV = standard HV)
+    # --------------------------------------------------------------
     P3_min: List[Point3D] = [(3, 3, 3)]
     r3: Point3D = (5, 5, 5)
     a3: Point3D = (2, 2, 2)
@@ -534,25 +542,25 @@ if __name__ == "__main__":
                                         n_samples=200_000, seed=2)
     rel_err = abs(hv_mc - hv_exact) / hv_exact if hv_exact != 0.0 else 0.0
     print("=== 3D example: minimization, no truncation ===")
-    print(f"Exact HV   : {hv_exact:.6f}  (should be 8.0)")
+    print(f"Exact HV   : {hv_exact:.6f}  (expected 8.0)")
     print(f"MC estimate: {hv_mc:.6f}")
     print(f"Rel. error : {rel_err:.6e}")
     print()
 
-    # With truncation [a3, w3]
+    # With ART truncation [a3, w3]
     hv_exact, hv_mc = mc_estimate_hv_3d(P3_min, r3, maximize=False,
                                         a=a3, w=w3,
                                         n_samples=200_000, seed=3)
     rel_err = abs(hv_mc - hv_exact) / hv_exact if hv_exact != 0.0 else 0.0
-    print("=== 3D example: minimization, truncated [a,w] ===")
-    print(f"Exact HV   : {hv_exact:.6f}  (should be 1.0)")
+    print("=== 3D example: minimization, ART-truncated [a,w] ===")
+    print(f"Exact HV   : {hv_exact:.6f}  (same as standard HV here)")
     print(f"MC estimate: {hv_mc:.6f}")
     print(f"Rel. error : {rel_err:.6e}")
     print()
 
-    # ------------------------------------------------------------------
-    # 2-D example: minimization with and without truncation
-    # ------------------------------------------------------------------
+    # --------------------------------------------------------------
+    # 2-D example: minimization with and without ART truncation
+    # --------------------------------------------------------------
     P2: List[Point2D] = [(1, 4), (3, 3), (1.5, 3.5)]
     r2: Point2D = (5, 5)
     a2: Point2D = (2, 2)
@@ -563,18 +571,18 @@ if __name__ == "__main__":
                                         n_samples=200_000, seed=4)
     rel_err = abs(hv_mc - hv_exact) / hv_exact if hv_exact != 0.0 else 0.0
     print("=== 2D example: minimization, no truncation ===")
-    print(f"Exact HV   : {hv_exact:.6f}  (should be 6.75)")
+    print(f"Exact HV   : {hv_exact:.6f}  (expected 6.75)")
     print(f"MC estimate: {hv_mc:.6f}")
     print(f"Rel. error : {rel_err:.6e}")
     print()
 
-    # With truncation [a2, w2]
+    # With ART truncation [a2, w2]
     hv_exact, hv_mc = mc_estimate_hv_2d(P2, r2, maximize=False,
                                         a=a2, w=w2,
                                         n_samples=200_000, seed=5)
     rel_err = abs(hv_mc - hv_exact) / hv_exact if hv_exact != 0.0 else 0.0
-    print("=== 2D example: minimization, truncated [a,w] ===")
-    print(f"Exact HV   : {hv_exact:.6f}  (should be 1.5)")
+    print("=== 2D example: minimization, ART-truncated [a,w] ===")
+    print(f"Exact HV   : {hv_exact:.6f}  (expected 5.5)")
     print(f"MC estimate: {hv_mc:.6f}")
     print(f"Rel. error : {rel_err:.6e}")
     print()
