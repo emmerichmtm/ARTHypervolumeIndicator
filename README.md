@@ -1,4 +1,4 @@
-# Truncated Hypervolume (2D & 3D)
+# Aspiration Reservation Truncated Hypervolume Indicator (2D & 3D)
 
 This repository provides a small, self-contained Python module for computing
 2-D and 3-D hypervolume indicators, with:
